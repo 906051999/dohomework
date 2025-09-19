@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import MarkdownIt from 'markdown-it'
 
 // 初始化 MarkdownIt
@@ -48,6 +48,20 @@ const selectedImage = ref<File | null>(null)
 const imagePreview = ref<string | null>(null)
 const isLoading = ref(false)
 const selectedModel = ref('gemini') // 默认选择Gemini模型
+const requestStatus = ref('') // 请求状态指示器
+
+// 监听isLoading状态变化，更新状态指示器
+watch(isLoading, (newVal) => {
+  if (newVal) {
+    requestStatus.value = '请求处理中...'
+  } else {
+    requestStatus.value = '请求已完成'
+    // 2秒后清除状态提示
+    setTimeout(() => {
+      requestStatus.value = ''
+    }, 2000)
+  }
+})
 
 // API配置
 const API_CONFIG = {
@@ -142,6 +156,17 @@ const callAIApi = async (messagesToSend: ApiMessage[]) => {
   }
 }
 
+// 滚动到底部 - 改进版本
+const scrollToBottom = () => {
+  const messagesContainer = document.querySelector('.messages-fluent')
+  if (messagesContainer) {
+    // 使用 setTimeout 确保 DOM 更新后再滚动
+    setTimeout(() => {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight
+    }, 0)
+  }
+}
+
 // 发送文本消息
 const sendTextMessage = async () => {
   if (userInput.value.trim() === '' || isLoading.value) return
@@ -162,6 +187,9 @@ const sendTextMessage = async () => {
   
   // 清空输入框
   userInput.value = ''
+  
+  // 滚动到最新消息
+  scrollToBottom()
   
   try {
     // 准备发送给API的消息（普通对话不需要特殊的system prompt）
@@ -230,6 +258,9 @@ const sendImageMessage = async () => {
   selectedImage.value = null
   imagePreview.value = null
   
+  // 滚动到最新消息
+  scrollToBottom()
+  
   try {
     // 准备发送给API的消息（包含图片）
     const apiMessages: ApiMessage[] = [
@@ -290,14 +321,6 @@ const sendImageMessage = async () => {
   }
 }
 
-// 滚动到底部
-const scrollToBottom = () => {
-  const messagesContainer = document.querySelector('.messages-fluent')
-  if (messagesContainer) {
-    messagesContainer.scrollTop = messagesContainer.scrollHeight
-  }
-}
-
 // 处理图片选择
 const handleImageSelect = (event: Event) => {
   const target = event.target as HTMLInputElement
@@ -341,6 +364,9 @@ const useCommand = async (command: Command) => {
   
   // 清空输入框
   userInput.value = ''
+  
+  // 滚动到最新消息
+  scrollToBottom()
   
   try {
     // 准备发送给API的消息（包含特定的system prompt）
@@ -399,12 +425,9 @@ onMounted(() => {
     <div class="header-fluent">
       <h1 class="header-title">DoHomework - AI 学习助手</h1>
       <p class="header-subtitle">您的智能学习伙伴</p>
-      <div class="model-selector">
-        <label for="model-select">选择模型：</label>
-        <select id="model-select" v-model="selectedModel" :disabled="isLoading">
-          <option value="glm">THUDM/GLM-4.1V-9B-Thinking</option>
-          <option value="gemini">Gemini 2.5 Flash</option>
-        </select>
+      <div class="status-indicator" v-if="requestStatus">
+        <div class="status-dot" :class="{ 'loading': isLoading }"></div>
+        <span class="status-text">{{ requestStatus }}</span>
       </div>
     </div>
     
@@ -449,6 +472,16 @@ onMounted(() => {
         >
           {{ command.name }}
         </button>
+      </div>
+      
+      <div class="model-selector-input-area">
+        <div class="model-selector-inline">
+          <label for="model-select-inline">选择模型：</label>
+          <select id="model-select-inline" v-model="selectedModel" :disabled="isLoading">
+            <option value="glm">THUDM/GLM-4.1V-9B-Thinking</option>
+            <option value="gemini">Gemini 2.5 Flash</option>
+          </select>
+        </div>
       </div>
       
       <div class="input-area-fluent">
@@ -503,6 +536,7 @@ onMounted(() => {
   height: 100%;
   width: 100%;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  position: relative;
 }
 
 .header-fluent {
@@ -511,6 +545,7 @@ onMounted(() => {
   margin-bottom: 24px;
   border-bottom: 1px solid #f3f2f1;
   background-color: #ffffff;
+  position: relative;
 }
 
 .header-title {
@@ -529,10 +564,45 @@ onMounted(() => {
   line-height: 22px;
 }
 
-.model-selector {
+.status-indicator {
   position: absolute;
   top: 24px;
-  right: 24px;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f3f2f1;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #605e5c;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #4CAF50;
+}
+
+.status-dot.loading {
+  background-color: #FF9800;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+.model-selector-input-area {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 24px 16px;
+}
+
+.model-selector-inline {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -541,13 +611,13 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-.model-selector label {
+.model-selector-inline label {
   font-size: 14px;
   color: #605e5c;
   font-weight: 500;
 }
 
-.model-selector select {
+.model-selector-inline select {
   padding: 4px 8px;
   border: 1px solid #8a8886;
   border-radius: 4px;
@@ -556,7 +626,7 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.model-selector select:disabled {
+.model-selector-inline select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -735,6 +805,7 @@ onMounted(() => {
   font-weight: 600;
   transition: all 0.1s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  min-width: 80px;
 }
 
 .command-button-fluent:hover:not(:disabled) {
@@ -899,6 +970,7 @@ onMounted(() => {
   100% { transform: rotate(360deg); }
 }
 
+/* 移动端样式优化 */
 @media (max-width: 768px) {
   .ai-assistant-fluent {
     padding: 0;
@@ -925,13 +997,49 @@ onMounted(() => {
   }
   
   .commands-fluent {
-    flex-direction: column;
-    align-items: center;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0 12px 12px;
+    gap: 8px;
+    justify-content: flex-start;
   }
   
   .command-button-fluent {
-    width: 100%;
-    max-width: 300px;
+    width: auto;
+    min-width: auto;
+    padding: 8px 12px;
+    font-size: 13px;
+    white-space: nowrap;
   }
+  
+  .status-indicator {
+    left: 12px;
+    top: 12px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  
+  .model-selector-input-area {
+    padding: 0 12px 12px;
+  }
+  
+  .model-selector-inline {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
+
+/* 添加横向滚动条样式 */
+.commands-fluent::-webkit-scrollbar {
+  height: 6px;
+}
+
+.commands-fluent::-webkit-scrollbar-thumb {
+  background-color: #c8c6c4;
+  border-radius: 3px;
+}
+
+.commands-fluent::-webkit-scrollbar-track {
+  background-color: #f3f2f1;
 }
 </style>
