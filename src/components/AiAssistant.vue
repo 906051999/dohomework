@@ -49,6 +49,8 @@ const imagePreview = ref<string | null>(null)
 const isLoading = ref(false)
 const selectedModel = ref('gemini') // 默认选择Gemini模型
 const requestStatus = ref('') // 请求状态指示器
+const currentCommand = ref<Command | null>(null) // 当前使用的指令
+const messageCommands = ref<Record<number, string>>({}) // 记录每个消息使用的指令
 
 // 监听isLoading状态变化，更新状态指示器
 watch(isLoading, (newVal) => {
@@ -167,134 +169,85 @@ const scrollToBottom = () => {
   }
 }
 
-// 发送文本消息
-const sendTextMessage = async () => {
-  if (userInput.value.trim() === '' || isLoading.value) return
-  
-  // 添加用户消息
-  const userMessage: Message = {
-    id: Date.now(),
-    content: userInput.value,
-    role: 'user',
-    timestamp: new Date(),
-    type: 'text'
-  }
-  
-  messages.value.push(userMessage)
+// 统一发送消息函数（处理文本和图片）
+const sendMessage = async () => {
+  // 如果既没有文本也没有图片，或者正在加载中，则不发送
+  if ((userInput.value.trim() === '' && !selectedImage.value) || isLoading.value) return
   
   // 设置加载状态
   isLoading.value = true
   
-  // 清空输入框
-  userInput.value = ''
-  
-  // 滚动到最新消息
-  scrollToBottom()
-  
   try {
-    // 准备发送给API的消息（普通对话不需要特殊的system prompt）
-    const apiMessages: ApiMessage[] = [
-      {
-        role: 'system',
-        content: '你是一位专业的AI学习助手，能够帮助学生解答问题、提供学习建议、进行内容分析等。请以耐心、专业、友好的态度提供帮助。'
-      },
-      ...messages.value.map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      }))
-    ]
-    
-    // 调用AI API
-    const aiResponse = await callAIApi(apiMessages)
-    
-    // 添加AI回复
-    const aiMessage: Message = {
-      id: Date.now() + 1,
-      content: aiResponse,
-      role: 'assistant',
-      timestamp: new Date(),
-      type: 'text'
+    // 如果有文本内容，先发送文本消息
+    if (userInput.value.trim() !== '') {
+      const userMessage: Message = {
+        id: Date.now(),
+        content: userInput.value,
+        role: 'user',
+        timestamp: new Date(),
+        type: 'text'
+      }
+      
+      messages.value.push(userMessage)
     }
     
-    messages.value.push(aiMessage)
-  } catch (error: any) {
-    // 错误处理
-    const errorMessage: Message = {
-      id: Date.now() + 1,
-      content: error.message || '发生未知错误',
-      role: 'assistant',
-      timestamp: new Date(),
-      type: 'text'
+    // 如果有图片，发送图片消息
+    if (selectedImage.value && imagePreview.value) {
+      const userMessage: Message = {
+        id: Date.now() + 1,
+        content: imagePreview.value,
+        role: 'user',
+        timestamp: new Date(),
+        type: 'image'
+      }
+      
+      messages.value.push(userMessage)
     }
     
-    messages.value.push(errorMessage)
-  } finally {
-    // 取消加载状态
-    isLoading.value = false
     // 滚动到最新消息
     scrollToBottom()
-  }
-}
-
-// 发送图片消息
-const sendImageMessage = async () => {
-  if (!selectedImage.value || isLoading.value) return
-  
-  // 添加用户图片消息
-  const userMessage: Message = {
-    id: Date.now(),
-    content: imagePreview.value || '',
-    role: 'user',
-    timestamp: new Date(),
-    type: 'image'
-  }
-  
-  messages.value.push(userMessage)
-  
-  // 设置加载状态
-  isLoading.value = true
-  
-  // 清空图片选择
-  selectedImage.value = null
-  imagePreview.value = null
-  
-  // 滚动到最新消息
-  scrollToBottom()
-  
-  try {
-    // 准备发送给API的消息（包含图片）
+    
+    // 清空输入框和图片选择
+    userInput.value = ''
+    selectedImage.value = null
+    imagePreview.value = null
+    
+    // 准备发送给API的消息
     const apiMessages: ApiMessage[] = [
       {
         role: 'system',
-        content: '你是一位专业的AI学习助手，能够分析图片内容并提供相关帮助。'
-      },
-      ...messages.value.slice(0, -1).map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      })),
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: '请分析这张图片的内容：'
-          },
-          {
-            type: 'image_url',
-            image_url: {
-              url: userMessage.content
-            }
-          }
-        ]
+        content: '你是一位专业的AI学习助手，能够帮助学生解答问题、提供学习建议、进行内容分析等。如果用户发送了图片，请分析图片内容并提供相关帮助。'
       }
     ]
     
+    // 添加历史消息
+    for (const msg of messages.value) {
+      if (msg.type === 'text') {
+        apiMessages.push({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content
+        })
+      } else if (msg.type === 'image') {
+        apiMessages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: {
+                url: msg.content
+              }
+            }
+          ]
+        })
+      }
+    }
+    
     // 调用AI API
     const aiResponse = await callAIApi(apiMessages)
     
     // 添加AI回复
     const aiMessage: Message = {
-      id: Date.now() + 1,
+      id: Date.now() + 2,
       content: aiResponse,
       role: 'assistant',
       timestamp: new Date(),
@@ -305,7 +258,7 @@ const sendImageMessage = async () => {
   } catch (error: any) {
     // 错误处理
     const errorMessage: Message = {
-      id: Date.now() + 1,
+      id: Date.now() + 2,
       content: error.message || '发生未知错误',
       role: 'assistant',
       timestamp: new Date(),
@@ -338,55 +291,101 @@ const handleImageSelect = (event: Event) => {
 
 // 使用内置指令 - 修复逻辑：用户输入内容后点击按钮应触发携带对应prompt的对话
 const useCommand = async (command: Command) => {
-  // 检查用户是否输入了内容
-  if (userInput.value.trim() === '') {
-    // 如果没有输入内容，提示用户输入
-    alert('请先输入内容，然后点击指令按钮')
+  // 检查用户是否输入了内容或选择了图片
+  if (userInput.value.trim() === '' && !selectedImage.value) {
+    // 如果没有输入内容也没有选择图片，提示用户输入
+    alert('请先输入内容或选择图片，然后点击指令按钮')
     return
   }
   
-  // 构造用户消息
-  const userMessageContent = userInput.value
-  
-  // 添加用户消息
-  const userMessage: Message = {
-    id: Date.now(),
-    content: userMessageContent,
-    role: 'user',
-    timestamp: new Date(),
-    type: 'text'
-  }
-  
-  messages.value.push(userMessage)
+  // 记录当前使用的指令
+  currentCommand.value = command
   
   // 设置加载状态
   isLoading.value = true
   
-  // 清空输入框
-  userInput.value = ''
-  
-  // 滚动到最新消息
-  scrollToBottom()
-  
   try {
-    // 准备发送给API的消息（包含特定的system prompt）
+    // 准备API消息数组
     const apiMessages: ApiMessage[] = [
       {
         role: 'system',
         content: command.systemPrompt
-      },
-      ...messages.value.map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      }))
+      }
     ]
+    
+    // 如果有文本内容，添加文本消息
+    let firstMessageId = 0
+    if (userInput.value.trim() !== '') {
+      const userMessage: Message = {
+        id: Date.now(),
+        content: userInput.value,
+        role: 'user',
+        timestamp: new Date(),
+        type: 'text'
+      }
+      
+      firstMessageId = userMessage.id
+      messages.value.push(userMessage)
+      
+      // 记录该消息使用的指令
+      messageCommands.value[userMessage.id] = command.name
+      
+      // 添加到API消息
+      apiMessages.push({
+        role: 'user',
+        content: userInput.value
+      })
+    }
+    
+    // 如果有图片，添加图片消息
+    if (selectedImage.value && imagePreview.value) {
+      const userMessage: Message = {
+        id: firstMessageId ? firstMessageId + 1 : Date.now() + 1,
+        content: imagePreview.value,
+        role: 'user',
+        timestamp: new Date(),
+        type: 'image'
+      }
+      
+      messages.value.push(userMessage)
+      
+      // 如果还没有记录指令，则为图片消息记录指令
+      if (firstMessageId === 0) {
+        messageCommands.value[userMessage.id] = command.name
+      }
+      
+      // 添加到API消息
+      apiMessages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '请分析这张图片的内容：'
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: imagePreview.value
+            }
+          }
+        ]
+      })
+    }
+    
+    // 滚动到最新消息
+    scrollToBottom()
+    
+    // 清空输入框和图片选择
+    userInput.value = ''
+    selectedImage.value = null
+    imagePreview.value = null
     
     // 调用AI API
     const aiResponse = await callAIApi(apiMessages)
     
     // 添加AI回复
     const aiMessage: Message = {
-      id: Date.now() + 1,
+      id: Date.now() + 2,
       content: aiResponse,
       role: 'assistant',
       timestamp: new Date(),
@@ -397,7 +396,7 @@ const useCommand = async (command: Command) => {
   } catch (error: any) {
     // 错误处理
     const errorMessage: Message = {
-      id: Date.now() + 1,
+      id: Date.now() + 2,
       content: error.message || '发生未知错误',
       role: 'assistant',
       timestamp: new Date(),
@@ -408,6 +407,8 @@ const useCommand = async (command: Command) => {
   } finally {
     // 取消加载状态
     isLoading.value = false
+    // 清除当前指令
+    currentCommand.value = null
     // 滚动到最新消息
     scrollToBottom()
   }
@@ -425,10 +426,6 @@ onMounted(() => {
     <div class="header-fluent">
       <h1 class="header-title">DoHomework - AI 学习助手</h1>
       <p class="header-subtitle">您的智能学习伙伴</p>
-      <div class="status-indicator" v-if="requestStatus">
-        <div class="status-dot" :class="{ 'loading': isLoading }"></div>
-        <span class="status-text">{{ requestStatus }}</span>
-      </div>
     </div>
     
     <div class="chat-container-fluent">
@@ -438,6 +435,11 @@ onMounted(() => {
           :key="message.id"
           :class="['message-fluent', message.role]"
         >
+          <!-- 指令标签 -->
+          <div v-if="message.role === 'user' && messageCommands[message.id]" class="command-tag-fluent">
+            {{ messageCommands[message.id] }}
+          </div>
+          
           <div class="message-content-fluent">
             <template v-if="message.type === 'text'">
               <div v-html="renderMarkdown(message.content)"></div>
@@ -460,6 +462,12 @@ onMounted(() => {
             </div>
           </div>
         </div>
+      </div>
+      
+      <!-- 状态指示器 -->
+      <div class="status-indicator" v-if="requestStatus">
+        <div class="status-dot" :class="{ 'loading': isLoading }"></div>
+        <span class="status-text">{{ requestStatus }}</span>
       </div>
       
       <div class="commands-fluent">
@@ -489,14 +497,14 @@ onMounted(() => {
           <textarea 
             v-model="userInput" 
             placeholder="输入你的问题... (按Enter发送，Shift+Enter换行)"
-            @keydown.enter.exact.prevent="sendTextMessage"
+            @keydown.enter.exact.prevent="sendMessage"
             @keydown.enter.shift.exact.prevent="userInput += '\n'"
             class="input-field-fluent"
           ></textarea>
           <button 
-            @click="sendTextMessage" 
+            @click="sendMessage" 
             class="send-button-fluent"
-            :disabled="isLoading || userInput.trim() === ''"
+            :disabled="isLoading || (userInput.trim() === '' && !selectedImage)"
           >
             发送
           </button>
@@ -513,13 +521,6 @@ onMounted(() => {
           <label for="image-upload-fluent" class="image-upload-label-fluent">
             选择图片
           </label>
-          <button 
-            @click="sendImageMessage" 
-            :disabled="!selectedImage || isLoading"
-            class="send-image-button-fluent"
-          >
-            发送图片
-          </button>
           <div v-if="imagePreview" class="image-preview-fluent">
             <img :src="imagePreview" alt="预览图片" />
           </div>
@@ -566,8 +567,8 @@ onMounted(() => {
 
 .status-indicator {
   position: absolute;
-  top: 24px;
-  left: 24px;
+  bottom: 20px;
+  right: 20px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -576,6 +577,8 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 14px;
   color: #605e5c;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 10;
 }
 
 .status-dot {
@@ -640,6 +643,7 @@ onMounted(() => {
   border-radius: 0;
   box-shadow: none;
   border: none;
+  position: relative;
 }
 
 .messages-fluent {
@@ -1013,10 +1017,17 @@ onMounted(() => {
   }
   
   .status-indicator {
-    left: 12px;
-    top: 12px;
+    bottom: 15px;
+    right: 15px;
     padding: 6px 10px;
     font-size: 12px;
+  }
+  
+  .command-indicator {
+    right: 12px;
+    top: 12px;
+    padding: 3px 6px;
+    font-size: 11px;
   }
   
   .model-selector-input-area {
@@ -1026,6 +1037,12 @@ onMounted(() => {
   .model-selector-inline {
     padding: 6px 10px;
     font-size: 12px;
+  }
+  
+  .command-tag-fluent {
+    font-size: 11px;
+    padding: 1px 4px;
+    margin-bottom: 6px;
   }
 }
 
