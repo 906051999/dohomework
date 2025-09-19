@@ -47,10 +47,21 @@ const userInput = ref('')
 const selectedImage = ref<File | null>(null)
 const imagePreview = ref<string | null>(null)
 const isLoading = ref(false)
+const selectedModel = ref('gemini') // 默认选择Gemini模型
 
 // API配置
-const API_URL = 'https://api.siliconflow.cn/v1/chat/completions'
-const API_KEY = import.meta.env.VITE_API_KEY || 'your-api-key-here'
+const API_CONFIG = {
+  glm: {
+    url: 'https://api.siliconflow.cn/v1/chat/completions',
+    key: import.meta.env.VITE_API_KEY || 'your-api-key-here',
+    model: 'THUDM/GLM-4.1V-9B-Thinking'
+  },
+  gemini: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    key: import.meta.env.VITE_GEMINI_API_KEY || 'your-gemini-api-key-here',
+    model: 'gemini-2.5-flash'
+  }
+}
 
 // 内置指令 - 每个指令都有详细的system prompt
 const commands: Command[] = [
@@ -94,14 +105,26 @@ const renderMarkdown = (content: string) => {
 // 调用AI API
 const callAIApi = async (messagesToSend: ApiMessage[]) => {
   try {
-    const response = await fetch(API_URL, {
+    // 根据选择的模型获取配置
+    const config = API_CONFIG[selectedModel.value as keyof typeof API_CONFIG]
+    
+    // 设置请求头
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    
+    // 根据模型类型设置认证头
+    if (selectedModel.value === 'gemini') {
+      headers['Authorization'] = `Bearer ${config.key}`
+    } else {
+      headers['Authorization'] = `Bearer ${config.key}`
+    }
+    
+    const response = await fetch(config.url, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${API_KEY}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({
-        model: 'THUDM/GLM-4.1V-9B-Thinking',
+        model: config.model,
         messages: messagesToSend,
         stream: false
       })
@@ -376,6 +399,13 @@ onMounted(() => {
     <div class="header-fluent">
       <h1 class="header-title">DoHomework - AI 学习助手</h1>
       <p class="header-subtitle">您的智能学习伙伴</p>
+      <div class="model-selector">
+        <label for="model-select">选择模型：</label>
+        <select id="model-select" v-model="selectedModel" :disabled="isLoading">
+          <option value="glm">THUDM/GLM-4.1V-9B-Thinking</option>
+          <option value="gemini">Gemini 2.5 Flash</option>
+        </select>
+      </div>
     </div>
     
     <div class="chat-container-fluent">
@@ -497,6 +527,38 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 400;
   line-height: 22px;
+}
+
+.model-selector {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f3f2f1;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.model-selector label {
+  font-size: 14px;
+  color: #605e5c;
+  font-weight: 500;
+}
+
+.model-selector select {
+  padding: 4px 8px;
+  border: 1px solid #8a8886;
+  border-radius: 4px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.model-selector select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .chat-container-fluent {

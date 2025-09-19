@@ -38,7 +38,13 @@ https://api.siliconflow.cn/v1/chat/completions
 2. 在 `.env` 文件中填写你的API密钥：
 ```
 VITE_API_KEY=your_actual_api_key_here
+VITE_GEMINI_API_KEY=your_gemini_api_key_here
 ```
+
+### API密钥获取
+
+- `VITE_API_KEY`：从 [SiliconFlow](https://siliconflow.cn) 获取，用于GLM模型
+- `VITE_GEMINI_API_KEY`：从 [Google AI Studio](https://aistudio.google.com/) 获取，用于Gemini模型
 
 ## 使用说明
 
